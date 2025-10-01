@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trade Adventure: Aventura Comercial</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Usando una fuente amigable para un aspecto profesional */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=Montserrat:wght@700;900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1f2937, #0f172a); /* Fondo oscuro elegante */
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        /* Estilos principales de la tarjeta de juego */
+        .game-card {
+            background-color: #ffffff;
+            border: 6px solid #4f46e5; /* Púrpura principal */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease-in-out;
+            max-width: 95%; 
+        }
+        /* Estilos de botones interactivos */
+        .game-button {
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+            transform-origin: center;
+        }
+        .game-button:hover {
+            transform: scale(1.02);
+            box-shadow: 0 8px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+        .game-button:active {
+            transform: scale(0.98);
+            box-shadow: none;
+        }
+        /* Botones de opciones para el quiz */
+        .option-btn {
+            border: 2px solid #e5e7eb;
+            font-weight: 500;
+        }
+        .option-btn:hover:not(:disabled) {
+            background-color: #fef3c7; /* Amarillo suave para hover */
+            border-color: #fbbf24;
+        }
+        /* Estilo para la caja de retroalimentación */
+        #feedback.show-feedback {
+            animation: fadeInOut 0.5s ease-out;
+        }
+        @keyframes fadeInOut {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        /* Estilo para el progreso */
+        .progress-bar {
+            height: 10px;
+            background-color: #e5e7eb;
+            border-radius: 9999px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            transition: width 0.5s ease-out;
+            background-color: #10b981; /* Verde esmeralda */
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container" class="game-card w-full max-w-xl mx-auto p-4 md:p-8 rounded-3xl">
+
+    <!-- Sección del Logo y Título -->
+    <div class="mb-6 flex flex-col items-center">
+        <!-- RUTA DEL LOGO: Diseño sin título.jpg -->
+        <img src="Diseño sin título.jpg" onerror="this.onerror=null;this.src='https://placehold.co/120x120/4f46e5/ffffff?text=LOGO';" alt="Logo de Trade Adventure" class="w-24 h-24 mb-3 rounded-full shadow-xl border-4 border-yellow-500 object-cover p-1">
+        
+        <h1 class="text-4xl font-extrabold text-center text-gray-900 mb-1" style="font-family: 'Montserrat', sans-serif;">Trade Adventure</h1>
+        <p class="text-md text-center text-gray-500 font-medium">Simulador de Incoterms 2020</p>
+    </div>
+
+    <!-- Indicador de estado de Firebase y Usuario -->
+    <div id="status" class="text-center text-sm mb-4 p-2 bg-gray-100 rounded-lg text-gray-600 font-mono">Cargando aplicación...</div>
+
+    <div id="content">
+        <!-- El contenido se cargará aquí mediante JavaScript -->
+    </div>
+
+    <!-- Retroalimentación con animación -->
+    <div id="feedback" class="mt-6 p-4 rounded-xl text-center font-bold hidden show-feedback"></div>
+
+</div>
+
+<!-- Firebase Script Imports (se mantienen para funcionalidad) -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot, collection, query, limit, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    
+    // Configuración de la aplicación
+    setLogLevel('Debug');
+    
+    // Variables globales para Firebase y App
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    let app, db, auth;
+    let userId = null;
+    let userName = 'Usuario Global'; // Nombre inicial
+
+    // Estado del juego
+    let currentScore = 0;
+    let currentRole = '';
+    let currentScenarioIndex = 0;
+    
+    // Personaje e Imágenes 
+    const characterName = "Don Ricardo, el Experto Global";
+    const characterImage = "image_adef29.jpg"; 
+
+    // Referencias DOM
+    const statusDiv = document.getElementById('status');
+    const contentDiv = document.getElementById('content');
+    const feedbackDiv = document.getElementById('feedback');
+
+    // Escenarios (Mismo contenido que antes, solo la interfaz cambia)
+    const scenarios = [
+        // 1. EXW (En fábrica) - Grupo E
+        {
+            incoterm: 'EXW (En fábrica)',
+            exportador: {
+                situacion: "Tienes una empresa textil en Arequipa que produce chompas de alpaca. Un comprador en Alemania quiere 500 unidades bajo EXW. Te pide que prepares la mercancía lista en tu almacén, ya que él coordinará transporte, seguro y trámites internacionales.",
+                pregunta: "¿Qué debes hacer como exportador?",
+                opciones: [
+                    { texto: "Entregar la mercancía embalada y lista en tu almacén", correcto: true, explicacion: "Bajo EXW (Ex Works), tu única responsabilidad es poner la mercancía a disposición del comprador en tu almacén. El comprador asume todos los costos y riesgos a partir de ese punto, incluyendo la carga inicial, el flete y los trámites de exportación." },
+                    { texto: "Pagar el transporte hasta el puerto del Callao", correcto: false, explicacion: "Esto sería una responsabilidad de FCA/CPT o superior. En EXW, el transporte lo paga y organiza el comprador." },
+                    { texto: "Contratar el seguro internacional", correcto: false, explicacion: "El seguro internacional es responsabilidad del comprador, ya que él asume el riesgo desde tus instalaciones." }
+                ]
+            },
+            importador: {
+                situacion: "Eres un importador en Alemania que compra chompas de alpaca bajo EXW Arequipa. El proveedor solo dejará la carga lista en su almacén.",
+                pregunta: "¿Qué responsabilidad ASUMES principalmente?",
+                opciones: [
+                    { texto: "Organizar y pagar todo el transporte y seguro desde Arequipa", correcto: true, explicacion: "Bajo EXW, el importador (comprador) toma el riesgo y el control de la mercancía en el almacén del exportador, asumiendo todos los costos y trámites desde el origen." },
+                    { texto: "Esperar a que la mercancía llegue a tu puerto en Alemania", correcto: false, explicacion: "Esto aplicaría a Incoterms del Grupo D, como DAP o DDP." },
+                    { texto: "Pagar solo los aranceles de importación", correcto: false, explicacion: "Debes cubrir muchos más costos, incluyendo el flete principal y seguro." }
+                ]
+            }
+        },
+        // 2. FCA (Franco porteador) - Grupo F
+        {
+            incoterm: 'FCA (Franco porteador)',
+            exportador: {
+                situacion: "Exportas juguetes de madera desde Lima a México bajo FCA en el almacén de tu agente de carga en Callao. El comprador quiere que solo entregues ahí.",
+                pregunta: "¿Dónde termina tu responsabilidad de riesgo como exportador?",
+                opciones: [
+                    { texto: "Al entregar la mercancía al transportista nombrado por el comprador en Callao", correcto: true, explicacion: "En FCA, la transferencia de riesgo ocurre cuando la mercancía es entregada al transportista designado por el comprador en el lugar acordado (en este caso, el almacén en Callao)." },
+                    { texto: "En el puerto de destino en México", correcto: false, explicacion: "Esto corresponde a Incoterms como CFR o CIF (costo)." },
+                    { texto: "Al momento de cargar la mercancía en mi fábrica", correcto: false, explicacion: "Si la entrega se acuerda fuera de la fábrica, tu responsabilidad de riesgo termina en el punto de entrega acordado con el transportista." }
+                ]
+            },
+            importador: {
+                situacion: "Compras juguetes de madera bajo FCA Callao. Tienes que contratar y pagar el flete principal.",
+                pregunta: "¿Qué responsabilidad ASUMES desde Callao?",
+                opciones: [
+                    { texto: "Asumir el riesgo y pagar el flete internacional desde Callao", correcto: true, explicacion: "Como comprador, asumes el riesgo una vez que la mercancía se entrega a tu transportista en Callao. Eres responsable de contratar y pagar el flete principal y el seguro desde ese punto." },
+                    { texto: "Pagar solo los impuestos en tu país", correcto: false, explicacion: "Tu responsabilidad comienza en el origen e incluye el flete principal, no solo los trámites de importación." },
+                    { texto: "Contratar el seguro obligatorio del tramo principal", correcto: false, explicacion: "El seguro no es obligatorio para FCA, pero el riesgo sí es tuyo." }
+                ]
+            }
+        },
+        // 3. FAS (Franco al costado del buque) - Solo Marítimo
+        {
+            incoterm: 'FAS (Franco al costado del buque)',
+            exportador: {
+                situacion: "Exportas mineral de hierro desde el Callao a China bajo FAS. El comprador ha contratado un buque.",
+                pregunta: "¿Cuál es tu punto de entrega y transferencia de riesgo?",
+                opciones: [
+                    { texto: "Al poner la mercancía al costado del buque en el muelle de Callao", correcto: true, explicacion: "Bajo FAS, el exportador cumple con su obligación cuando la mercancía es colocada junto al buque en el puerto de embarque. El riesgo se transfiere ahí mismo, antes de la carga." },
+                    { texto: "Al cargar la mercancía a bordo del buque", correcto: false, explicacion: "Esto corresponde a FOB (Franco a bordo)." },
+                    { texto: "Cuando la mercancía llega a China", correcto: false, explicacion: "Esto corresponde al Grupo D, donde el riesgo se transfiere en destino." }
+                ]
+            },
+            importador: {
+                situacion: "Importas mineral de hierro bajo FAS Callao. El exportador deja la mercancía al lado del buque que contrataste.",
+                pregunta: "¿Qué asumes desde ese momento?",
+                opciones: [
+                    { texto: "El riesgo de pérdida o daño y los costos de carga y flete", correcto: true, explicacion: "El importador (comprador) asume todos los riesgos y costos, incluyendo la carga al buque, el flete y el seguro, desde el momento en que la mercancía está al costado del buque en Callao." },
+                    { texto: "Solo los costos de flete, el riesgo es del exportador hasta que esté a bordo", correcto: false, explicacion: "El riesgo se transfiere al costado del buque, antes de la carga." },
+                    { texto: "Los costos de descarga en China", correcto: false, explicacion: "Los costos de descarga son parte de las responsabilidades más allá del punto de transferencia del riesgo, pero el riesgo principal se asume mucho antes." }
+                ]
+            }
+        },
+        // 4. FOB (Franco a bordo) - Solo Marítimo
+        {
+            incoterm: 'FOB (Franco a bordo)',
+            exportador: {
+                situacion: "Exportas cacao desde el puerto de Guayaquil a Holanda bajo FOB. El comprador contrata el transporte principal.",
+                pregunta: "¿Cuál es tu responsabilidad clave al entregar?",
+                opciones: [
+                    { texto: "Cargar la mercancía a bordo del buque en Guayaquil", correcto: true, explicacion: "Bajo FOB, la transferencia de riesgo y la obligación de entrega del exportador se cumplen cuando la mercancía es cargada a bordo del buque en el puerto de embarque. El exportador cubre todos los costos hasta ese momento." },
+                    { texto: "Pagar el flete hasta Holanda", correcto: false, explicacion: "El flete principal lo paga el comprador. Esto sería CFR/CIF." },
+                    { texto: "Contratar el seguro marítimo", correcto: false, explicacion: "El seguro es opcional para el exportador, el comprador asume el riesgo desde el embarque." }
+                ]
+            },
+            importador: {
+                situacion: "Compras cacao bajo FOB Guayaquil. El exportador lo carga a bordo de tu buque.",
+                pregunta: "¿Cuándo se te transfiere el riesgo?",
+                opciones: [
+                    { texto: "Cuando la mercancía está a bordo del buque en Guayaquil", correcto: true, explicacion: "La transferencia de riesgo ocurre una vez que la mercancía cruza la borda (está a bordo) del buque en el puerto de embarque (Guayaquil)." },
+                    { texto: "Cuando el buque atraca en el puerto de destino", correcto: false, explicacion: "Esto corresponde al Grupo D." },
+                    { texto: "Cuando la mercancía es despachada de aduana en Guayaquil", correcto: false, explicacion: "El despacho de exportación lo realiza el exportador en FOB, pero el riesgo se transfiere al momento de la carga." }
+                ]
+            }
+        },
+        // 5. CFR (Costo y flete) - Solo Marítimo
+        {
+            incoterm: 'CFR (Costo y flete)',
+            exportador: {
+                situacion: "Exportas maquinaria industrial de España a Argentina bajo CFR Buenos Aires. Pagarás el flete.",
+                pregunta: "¿Dónde se transfiere el riesgo, aunque pagues el flete?",
+                opciones: [
+                    { texto: "Cuando la mercancía es cargada a bordo del buque en España", correcto: true, explicacion: "CFR es un Incoterm 'C'. El exportador paga el flete hasta el destino, pero el riesgo se transfiere al comprador en el puerto de embarque, una vez que la mercancía está a bordo del buque." },
+                    { texto: "En el puerto de Buenos Aires", correcto: false, explicacion: "Buenos Aires es el punto de costo, no el punto de transferencia de riesgo." },
+                    { texto: "Cuando la mercancía es descargada en Buenos Aires", correcto: false, explicacion: "El riesgo se transfiere en el origen." }
+                ]
+            },
+            importador: {
+                situacion: "Compras maquinaria bajo CFR Buenos Aires. Sabes que el vendedor paga el flete hasta allí.",
+                pregunta: "¿Qué responsabilidad clave tienes?",
+                opciones: [
+                    { texto: "Contratar y pagar el seguro de la mercancía, ya que el riesgo es tuyo desde el origen", correcto: true, explicacion: "Dado que el riesgo se transfiere en el origen (al subir a bordo), el importador es responsable de contratar el seguro para proteger su carga durante el transporte principal." },
+                    { texto: "Pagar el flete principal", correcto: false, explicacion: "El flete principal lo paga el exportador bajo CFR." },
+                    { texto: "Asumir solo los costos de descarga en Buenos Aires", correcto: false, explicacion: "Asumes el riesgo durante el transporte principal, además de los costos de descarga e importación." }
+                ]
+            }
+        },
+        // 6. CIF (Costo, seguro y flete) - Solo Marítimo
+        {
+            incoterm: 'CIF (Costo, seguro y flete)',
+            exportador: {
+                situacion: "Exportas productos farmacéuticos desde Hamburgo a Shanghái bajo CIF. Debes pagar flete y seguro mínimo (Cláusula C).",
+                pregunta: "¿Qué cobertura mínima de seguro estás obligado a contratar?",
+                opciones: [
+                    { texto: "Cobertura mínima (Cláusula C) de las 'Institute Cargo Clauses'", correcto: true, explicacion: "Bajo CIF, el exportador está obligado a contratar la cobertura de seguro MÍNIMA (Cláusula C). El riesgo se transfiere al comprador una vez a bordo, pero el exportador debe pagar el costo del flete y el seguro." },
+                    { texto: "Cobertura total (Cláusula A)", correcto: false, explicacion: "La Cláusula A (cobertura total) es obligatoria solo en CIP." },
+                    { texto: "Ninguna, si el importador la contrata", correcto: false, explicacion: "La contratación del seguro mínimo es una obligación del exportador en CIF." }
+                ]
+            },
+            importador: {
+                situacion: "Compras productos farmacéuticos bajo CIF Shanghái. El exportador paga flete y seguro mínimo.",
+                pregunta: "¿Qué riesgo debes cubrir con un seguro adicional?",
+                opciones: [
+                    { texto: "Cualquier riesgo adicional que no cubra la Cláusula C, si deseas cobertura total", correcto: true, explicacion: "Dado que el exportador solo proporciona el seguro mínimo (Cláusula C), el importador (comprador) debe contratar una cobertura adicional (Cláusula A o B) si desea una protección más amplia." },
+                    { texto: "El riesgo de pérdida de la carga mientras está en el buque", correcto: false, explicacion: "El riesgo es transferido al comprador, pero la cobertura C inicial ya cubre parte de los riesgos durante el transporte." },
+                    { texto: "El riesgo de pérdida hasta que la carga es descargada", correcto: false, explicacion: "El riesgo se transfiere en el puerto de origen." }
+                ]
+            }
+        },
+        // 7. CPT (Transporte pagado hasta) - Grupo C (Multimodal)
+        {
+            incoterm: 'CPT (Transporte pagado hasta)',
+            exportador: {
+                situacion: "Exportas flores desde Bogotá a Miami bajo CPT Miami. Pagas el flete principal, pero el riesgo se transfiere al primer transportista en Bogotá.",
+                pregunta: "¿Cuál es la obligación de COSTO principal del exportador?",
+                opciones: [
+                    { texto: "Pagar el flete hasta Miami, pero el riesgo se transfiere en Bogotá", correcto: true, explicacion: "Bajo CPT, el exportador paga el costo del transporte hasta el lugar de destino (Miami), pero el riesgo se transfiere al comprador en el punto de entrega inicial, que es al primer transportista en Bogotá." },
+                    { texto: "Pagar el flete hasta Miami, asumiendo el riesgo hasta Miami", correcto: false, explicacion: "El riesgo termina en origen, solo el costo va a destino." },
+                    { texto: "Pagar el seguro obligatorio total (Cláusula A)", correcto: false, explicacion: "La Cláusula A es obligatoria solo para CIP." }
+                ]
+            },
+            importador: {
+                situacion: "Compras flores bajo CPT Miami. Sabes que el vendedor pagó el transporte, pero el riesgo se transfirió en origen (Bogotá).",
+                pregunta: "¿Qué debes considerar, dado que el riesgo es tuyo desde el origen?",
+                opciones: [
+                    { texto: "Contratar el seguro de la mercancía, ya que el riesgo es tuyo desde el origen", correcto: true, explicacion: "Dado que el riesgo se transfiere en el origen (al primer transportista), el importador es el responsable de evaluar y contratar el seguro si lo desea." },
+                    { texto: "Pagar el flete internacional, ya que el costo es tuyo", correcto: false, explicacion: "El flete principal lo paga el exportador bajo CPT." },
+                    { texto: "Coordinar y pagar la entrega de la mercancía en Bogotá", correcto: false, explicacion: "La entrega inicial y el flete los paga el exportador." }
+                ]
+            }
+        },
+        // 8. CIP (Transporte y seguro pagados hasta) - Grupo C (Multimodal)
+        {
+            incoterm: 'CIP (Transporte y seguro pagados hasta)',
+            exportador: {
+                situacion: "Exportas autopartes desde Buenos Aires a Brasil bajo CIP Sao Paulo. Debes pagar el flete y contratar un seguro de cobertura total (Cláusula A).",
+                pregunta: "¿Cuál es tu responsabilidad de seguro mínima obligatoria bajo CIP?",
+                opciones: [
+                    { texto: "Cobertura total (Cláusula A) de las 'Institute Cargo Clauses'", correcto: true, explicacion: "CIP es el único Incoterm de la serie 'C' (junto a CIF) que obliga al vendedor a contratar seguro. En CIP, la cobertura mínima requerida es la MÁXIMA (Cláusula A)." },
+                    { texto: "Cobertura mínima (Cláusula C)", correcto: false, explicacion: "La Cláusula C es la mínima obligatoria en CIF." },
+                    { texto: "No necesitas seguro, solo es recomendable", correcto: false, explicacion: "El seguro es obligatorio para el exportador en CIP." }
+                ]
+            },
+            importador: {
+                situacion: "Compras autopartes bajo CIP Sao Paulo. El exportador pagó el flete y el seguro obligatorio (Cláusula A).",
+                pregunta: "¿Qué responsabilidad adicional clave debes asumir en Brasil?",
+                opciones: [
+                    { texto: "Asumir los trámites y costos de importación y descarga", correcto: true, explicacion: "El exportador paga hasta el destino e incluye el seguro, pero el comprador (importador) es responsable de los trámites y aranceles de importación, así como de la descarga en destino." },
+                    { texto: "Pagar el flete principal", correcto: false, explicacion: "El exportador paga el flete principal bajo CIP." },
+                    { texto: "Coordinar y pagar la entrega en el almacén de Buenos Aires", correcto: false, explicacion: "Esto ocurre en origen y es responsabilidad del exportador." }
+                ]
+            }
+        },
+        // 9. DAP (Entregado en un lugar) - Grupo D
+        {
+            incoterm: 'DAP (Entregado en un lugar)',
+            exportador: {
+                situacion: "Exportas repuestos automotrices desde Corea a un almacén específico en Detroit bajo DAP. Debes pagar el flete hasta ese punto.",
+                pregunta: "¿Cuál es tu obligación final de riesgo y costo?",
+                opciones: [
+                    { texto: "Entregar la mercancía lista para la descarga en el lugar de destino acordado", correcto: true, explicacion: "Bajo DAP, el exportador asume el riesgo y el costo hasta el lugar de destino acordado (Detroit), pero **no** incluye la descarga ni los trámites de importación. La mercancía se entrega lista para ser descargada." },
+                    { texto: "Pagar el transporte y la descarga en Detroit", correcto: false, explicacion: "La descarga no es responsabilidad del exportador en DAP, sino en DPU." },
+                    { texto: "Pagar los trámites de importación en EE.UU.", correcto: false, explicacion: "Esto solo se cubre bajo DDP." }
+                ]
+            },
+            importador: {
+                situacion: "Compras repuestos bajo DAP Detroit (almacén). El vendedor se hace cargo de todo hasta la llegada.",
+                pregunta: "¿Qué cubres en Detroit?",
+                opciones: [
+                    { texto: "Trámites de importación y aranceles", correcto: true, explicacion: "El importador (comprador) es responsable de los trámites aduaneros de importación, aranceles y el IVA. También es responsable de la descarga de la mercancía." },
+                    { texto: "Transporte hasta Detroit", correcto: false, explicacion: "El exportador paga el transporte principal bajo DAP." },
+                    { texto: "Seguro internacional", correcto: false, explicacion: "El seguro no es obligatorio, pero el riesgo lo asume el exportador hasta la entrega en Detroit." }
+                ]
+            }
+        },
+        // 10. DPU (Entregado descargado en destino) - Grupo D
+        {
+            incoterm: 'DPU (Entregado descargado en destino)',
+            exportador: {
+                situacion: "Exportas equipos médicos desde Lima a Chile bajo DPU Santiago. Debes entregar la mercancía descargada en el terminal.",
+                pregunta: "¿Qué obligación asumes al entregar la mercancía en el lugar acordado?",
+                opciones: [
+                    { texto: "Transporte y descarga en Santiago", correcto: true, explicacion: "DPU (Delivered at Place Unloaded) requiere que el exportador asuma todos los costos y riesgos hasta que la mercancía es descargada en el lugar de destino acordado, lo cual es la diferencia clave con DAP." },
+                    { texto: "Trámites de importación en Chile", correcto: false, explicacion: "Los trámites de importación siempre los asume el comprador, excepto en DDP." },
+                    { texto: "Solo entrega en Lima", correcto: false, explicacion: "Esto sería EXW o FCA." }
+                ]
+            },
+            importador: {
+                situacion: "Compras equipos médicos bajo DPU Santiago. El exportador cubre el costo de la descarga.",
+                pregunta: "¿Qué cubres principalmente?",
+                opciones: [
+                    { texto: "Trámites de importación y aranceles", correcto: true, explicacion: "Bajo DPU, aunque el exportador paga hasta la descarga, el comprador (importador) sigue siendo responsable de los trámites y aranceles de importación." },
+                    { texto: "Descarga en destino", correcto: false, explicacion: "La descarga en destino es pagada y organizada por el exportador bajo DPU." },
+                    { texto: "Nada, el exportador paga todo", correcto: false, explicacion: "El comprador siempre paga los impuestos y aranceles de importación en DPU." }
+                ]
+            }
+        },
+        // 11. DDP (Entregado con derechos pagados) - Grupo D
+        {
+            incoterm: 'DDP (Entregado con derechos pagados)',
+            exportador: {
+                situacion: "Exportas cosméticos naturales desde Lima a EE.UU. bajo DDP Nueva York. Debes cubrir todos los costos, incluidos impuestos en destino.",
+                pregunta: "¿Qué responsabilidad asumes como exportador?",
+                opciones: [
+                    { texto: "Todos los costos hasta el lugar de destino, incluidos impuestos de importación", correcto: true, explicacion: "DDP (Delivered Duty Paid) es la máxima obligación para el exportador. Debe cubrir absolutamente todos los costos, incluido el flete, el seguro, la descarga (si es necesario) y, crucialmente, los aranceles y trámites de importación en el país de destino." },
+                    { texto: "Solo flete y seguro", correcto: false, explicacion: "Flete y seguro es CIP/CIF. DDP es mucho más." },
+                    { texto: "Solo entrega en Callao", correcto: false, explicacion: "Esto sería EXW o FCA." }
+                ]
+            },
+            importador: {
+                situacion: "Compras cosméticos bajo DDP Nueva York. El vendedor te lo entrega en tu almacén con todos los impuestos pagados.",
+                pregunta: "¿Cuál es tu responsabilidad de costo clave bajo DDP?",
+                opciones: [
+                    { texto: "Ninguna, el exportador paga todo hasta la entrega final", correcto: true, explicacion: "Bajo DDP, el importador (comprador) tiene la mínima responsabilidad, ya que el exportador se encarga de pagar todos los costos y aranceles hasta el punto de entrega acordado." },
+                    { texto: "Impuestos y aranceles", correcto: false, explicacion: "El exportador paga los impuestos y aranceles en DDP." },
+                    { texto: "Seguro internacional", correcto: false, explicacion: "El exportador paga todos los costos, incluido el seguro." }
+                ]
+            }
+        }
+    ];
+
+    
+    // --- Lógica de Firebase y Auth ---
+    
+    async function initFirebase() {
+        if (!firebaseConfig) {
+            statusDiv.textContent = '❌ ERROR: Configuración de Firebase no encontrada.';
+            console.error('Firebase config is missing.');
+            showWelcome(); 
+            return;
+        }
+
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            await setPersistence(auth, browserSessionPersistence);
+            
+            if (initialAuthToken) {
+                await signInWithCustomToken(auth, initialAuthToken);
+            } else {
+                await signInAnonymously(auth);
+            }
+            
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    userName = user.email ? user.email.split('@')[0].toUpperCase() : `ESTUDIANTE-${userId.substring(0, 4).toUpperCase()}`;
+                    statusDiv.innerHTML = `✅ Conectado como: **${userName}** (ID: ${userId.substring(0, 4)}...)`;
+                    showWelcome();
+                } else {
+                    userId = crypto.randomUUID();
+                    userName = `VISITANTE-${userId.substring(0, 4).toUpperCase()}`;
+                    statusDiv.innerHTML = `⚠️ Modo offline (Sin guardar puntaje)`;
+                    showWelcome();
+                }
+            });
+
+        } catch (error) {
+            statusDiv.innerHTML = `❌ ERROR de conexión: ${error.message}`;
+            console.error("Error al inicializar o autenticar Firebase:", error);
+            showWelcome(); 
+        }
+    }
+    
+    // --- Lógica de Base de Datos ---
+
+    async function saveScore(score, role) {
+        if (!db || !userId || !auth.currentUser || auth.currentUser.isAnonymous) {
+            console.warn("No se pudo guardar el puntaje. Autenticación incompleta o usuario anónimo.");
+            return;
+        }
+
+        try {
+            const date = new Date().toISOString();
+            const scoreData = {
+                userId: userId,
+                userName: userName,
+                score: score,
+                maxScore: scenarios.length * 10,
+                role: role,
+                timestamp: date,
+                appId: appId 
+            };
+            
+            const docRef = doc(db, `artifacts/${appId}/public/data/leaderboard`, userId);
+            
+            await setDoc(docRef, scoreData, { merge: true });
+            console.log("Puntaje guardado con éxito para el ID:", userId);
+        } catch (e) {
+            console.error("Error al guardar el puntaje:", e);
+            showFeedback('Error al guardar el puntaje en el marcador global.', 'bg-red-100 text-red-700 border-red-400');
+        }
+    }
+
+    async function showLeaderboard() {
+        contentDiv.innerHTML = `
+            <h2 class="text-3xl font-extrabold text-center text-purple-700 mb-6" style="font-family: 'Montserrat', sans-serif;">🏆 Marcador Global 🏆</h2>
+            <div id="leaderboard-list" class="space-y-3 p-4 bg-white rounded-xl shadow-lg border border-gray-200">
+                <p class="text-center text-gray-500">Cargando puntajes...</p>
+            </div>
+            <div class="mt-8 text-center space-y-3">
+                <button onclick="window.showWelcome()" class="game-button bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 px-6 rounded-xl w-full">
+                    <span class="text-xl mr-2">🔄</span> Volver al Inicio
+                </button>
+            </div>
+        `;
+
+        if (!db) {
+            document.getElementById('leaderboard-list').innerHTML = `<p class="text-center text-red-500">Error: Base de datos no conectada.</p>`;
+            return;
+        }
+
+        try {
+            const leaderboardRef = collection(db, `artifacts/${appId}/public/data/leaderboard`);
+            const q = query(leaderboardRef, limit(20));
+
+            const querySnapshot = await getDocs(q);
+            let scores = [];
+
+            querySnapshot.forEach((doc) => {
+                scores.push(doc.data());
+            });
+
+            scores.sort((a, b) => {
+                if (b.score !== a.score) {
+                    return b.score - a.score;
+                }
+                return new Date(a.timestamp) - new Date(b.timestamp);
+            });
+
+            const listHtml = scores.map((data, index) => {
+                const isCurrentUser = data.userId === userId;
+                const userClass = isCurrentUser ? 'bg-yellow-100 font-extrabold border-2 border-yellow-500 text-gray-900' : 'bg-gray-50 shadow-sm text-gray-800';
+                return `
+                    <div class="flex justify-between items-center p-3 rounded-xl ${userClass}">
+                        <span class="text-lg font-mono w-8 text-center text-gray-600">${index + 1}.</span>
+                        <span class="flex-grow ml-2 truncate">${data.userName} ${isCurrentUser ? '(TÚ)' : ''}</span>
+                        <span class="text-2xl font-black text-purple-700">${data.score}</span>
+                        <span class="text-xs ml-3 text-gray-500 hidden sm:inline">(${data.role})</span>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('leaderboard-list').innerHTML = listHtml || '<p class="text-center text-gray-700">Sé el primero en aparecer aquí. ¡Juega ahora!</p>';
+
+        } catch (e) {
+            console.error("Error al cargar el marcador:", e);
+            document.getElementById('leaderboard-list').innerHTML = `<p class="text-center text-red-500">Fallo al obtener datos del marcador.</p>`;
+        }
+    }
+
+
+    // --- Lógica del Juego ---
+
+    function showWelcome() {
+        const maxScore = scenarios.length * 10;
+        contentDiv.innerHTML = `
+            <div class="p-4 bg-yellow-50 rounded-xl border-l-4 border-yellow-500 mb-6 flex items-start space-x-4 shadow-md">
+                <div class="w-16 h-16 flex-shrink-0">
+                    <img src="${characterImage}" onerror="this.onerror=null;this.src='https://placehold.co/64x64/fcd34d/333333?text=DR';" alt="${characterName}" class="w-full h-full object-cover rounded-full border-4 border-yellow-600 p-1">
+                </div>
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800 mb-2">${characterName} te da la bienvenida</h2>
+                    <p class="text-gray-700 text-sm">¡Demuestra tu dominio en **${scenarios.length} escenarios**! Máximo ${maxScore} puntos.</p>
+                </div>
+            </div>
+
+            <div class="p-4 bg-blue-50 rounded-xl border-l-4 border-blue-500 mb-6 shadow-md">
+                <h2 class="text-xl font-bold text-blue-700 mb-2">Objetivo: Máxima Colaboración</h2>
+                <p class="text-gray-700 text-sm">Asume un rol, resuelve los 11 casos y publica tu puntaje en el Marcador Global.</p>
+            </div>
+            
+            <h2 class="text-2xl font-extrabold text-gray-800 mb-4" style="font-family: 'Montserrat', sans-serif;">1. Elige tu Experiencia</h2>
+            <div class="flex flex-col space-y-4">
+                <button onclick="window.selectRole('Exportador')" class="game-button bg-green-500 hover:bg-green-600 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center text-lg">
+                    <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10m0-10l-8 4"></path></svg> Soy **Exportador**
+                </button>
+                <button onclick="window.selectRole('Importador')" class="game-button bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg flex items-center justify-center text-lg">
+                    <svg class="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg> Soy **Importador**
+                </button>
+                <button onclick="window.showLeaderboard()" class="game-button bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 rounded-xl shadow-lg flex items-center justify-center text-sm">
+                    Ver Marcador Global 🏆
+                </button>
+            </div>
+        `;
+        feedbackDiv.classList.add('hidden');
+    }
+
+    function selectRole(role) {
+        currentRole = role;
+        currentScore = 0;
+        currentScenarioIndex = 0;
+        showScenario();
+    }
+
+    function showScenario() {
+        if (currentScenarioIndex >= scenarios.length) {
+            showResults();
+            return;
+        }
+
+        const scenarioData = scenarios[currentScenarioIndex];
+        const roleData = scenarioData[currentRole.toLowerCase()];
+        const maxScore = scenarios.length * 10;
+        const progressPercent = ((currentScenarioIndex) / scenarios.length) * 100;
+
+        // Display de progreso mejorado
+        const progressDisplay = `
+            <div class="mb-5">
+                <div class="flex justify-between items-center mb-1">
+                    <p class="text-sm font-semibold text-gray-600">
+                        Progreso: ${currentScenarioIndex + 1} / ${scenarios.length}
+                    </p>
+                    <p class="text-xl font-extrabold text-blue-700">
+                        ${currentScore} / ${maxScore} pts
+                    </p>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${progressPercent}%"></div>
+                </div>
+            </div>
+        `;
+
+        contentDiv.innerHTML = progressDisplay + `
+            <h2 class="text-2xl font-extrabold text-purple-700 mb-4 border-b pb-2 border-purple-200">
+                <span class="text-yellow-500 mr-2">📍</span> Incoterm: ${scenarioData.incoterm}
+            </h2>
+            
+            <div class="p-4 bg-gray-50 rounded-xl border border-gray-300 mb-6 shadow-sm">
+                <p class="text-lg font-bold text-gray-800 mb-2">Mi Rol: <span class="text-xl ${currentRole === 'Exportador' ? 'text-green-600' : 'text-indigo-600'}">${currentRole}</span></p>
+                <p class="text-gray-700">${roleData.situacion}</p>
+            </div>
+
+            <h3 class="text-xl font-bold text-gray-800 mb-4">${roleData.pregunta}</h3>
+            <div id="options-container" class="flex flex-col space-y-3">
+                ${roleData.opciones.map((opcion, index) => `
+                    <button 
+                        onclick="window.checkAnswer(${currentScenarioIndex}, ${index})" 
+                        class="game-button option-btn bg-gray-200 text-gray-800 py-3 px-4 rounded-xl text-left"
+                    >
+                        ${String.fromCharCode(65 + index)}) ${opcion.texto}
+                    </button>
+                `).join('')}
+            </div>
+            
+            <!-- Contenedor para la explicación de la respuesta -->
+            <div id="explanation-box"></div>
+
+            <!-- Botones de navegación (solo 'Regresar al Menú' visible inicialmente) -->
+            <div class="mt-6 text-center space-y-3" id="navigation-buttons">
+                <button onclick="window.showWelcome()" class="game-button bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-xl text-sm w-full">
+                    &larr; Regresar al Menú
+                </button>
+            </div>
+        `;
+        feedbackDiv.classList.add('hidden');
+    }
+
+    function checkAnswer(scenarioIdx, answerIdx) {
+        const buttonsToDisable = contentDiv.querySelectorAll('.option-btn');
+        buttonsToDisable.forEach(btn => btn.disabled = true);
+        
+        const scenarioData = scenarios[scenarioIdx];
+        const roleData = scenarioData[currentRole.toLowerCase()];
+        const selectedOption = roleData.opciones[answerIdx];
+        const correctOption = roleData.opciones.find(opt => opt.correcto);
+        
+        let feedbackMessage = '';
+        let feedbackColor = '';
+        let explanationText = '';
+        let icon = '';
+
+
+        if (selectedOption.correcto) {
+            currentScore += 10;
+            icon = '✅';
+            feedbackMessage = `¡Respuesta Correcta! Ganas 10 puntos. 🎉`;
+            feedbackColor = 'bg-green-100 text-green-700 border border-green-400';
+            explanationText = selectedOption.explicacion;
+        } else {
+            icon = '❌';
+            feedbackMessage = `Respuesta Incorrecta. La correcta era: ${correctOption.texto}. 🧐`;
+            feedbackColor = 'bg-red-100 text-red-700 border border-red-400';
+            explanationText = correctOption.explicacion; 
+        }
+
+        showFeedback(`${icon} ${feedbackMessage}`, feedbackColor);
+
+        // Resaltar respuesta correcta e incorrecta
+        const optionsContainer = document.getElementById('options-container');
+        optionsContainer.querySelectorAll('button').forEach((btn, index) => {
+            btn.classList.remove('hover:bg-yellow-300', 'bg-gray-200', 'text-gray-800');
+            
+            if (roleData.opciones[index].correcto) {
+                btn.classList.add('bg-green-500', 'text-white', 'font-extrabold', 'shadow-lg');
+            } else if (index === answerIdx) {
+                btn.classList.add('bg-red-500', 'text-white', 'font-extrabold', 'shadow-lg');
+            } else {
+                 btn.classList.add('bg-gray-300', 'text-gray-600');
+            }
+        });
+        
+        // Mostrar la explicación
+        document.getElementById('explanation-box').innerHTML = `
+            <div class="mt-5 p-4 rounded-xl bg-blue-100 text-blue-800 border-l-4 border-blue-500 shadow-inner">
+                <h4 class="font-bold mb-1 text-lg">📚 Lección sobre ${scenarioData.incoterm}:</h4>
+                <p class="text-sm">${explanationText}</p>
+            </div>
+        `;
+
+        // Botón para avanzar o ver resultados
+        document.getElementById('navigation-buttons').innerHTML = `
+            <button onclick="window.nextScenario()" class="game-button bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl w-full text-lg">
+                ${currentScenarioIndex < scenarios.length - 1 ? 'Siguiente Desafío &rarr;' : 'Ver Resultados Finales 🏆'}
+            </button>
+            <button onclick="window.showWelcome()" class="game-button bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-6 rounded-xl text-sm w-full">
+                &larr; Regresar al Menú
+            </button>
+        `;
+
+         // Actualizar el progreso (incluye el puntaje actual)
+        const progressPercent = ((currentScenarioIndex + 1) / scenarios.length) * 100;
+        const progressDiv = contentDiv.querySelector('.progress-fill');
+        if(progressDiv) {
+            progressDiv.style.width = `${progressPercent}%`;
+            // Actualizar solo el texto del puntaje
+            contentDiv.querySelector('.text-xl.font-extrabold').textContent = `${currentScore} / ${maxScore} pts`;
+        }
+    }
+
+    function nextScenario() {
+        currentScenarioIndex++;
+        showScenario();
+    }
+
+    function showResults() {
+        const maxScore = scenarios.length * 10;
+        let title = '';
+        let feedbackClass = '';
+        let message = '';
+        let icon = '';
+
+        if (currentScore < 60) { 
+            title = 'Novato Comercial 😩';
+            feedbackClass = 'text-red-600 border-red-400';
+            message = "¡Ánimo! Repasa el concepto de 'Transmisión de Riesgo' vs. 'Pago de Costo'. ¡Sigue practicando para subir al ranking!";
+            icon = '📉';
+        } else if (currentScore <= 90) {
+            title = 'Negociador Intermedio 🌟';
+            feedbackClass = 'text-yellow-700 border-yellow-400';
+            message = "¡Muy bien! Estás cerca de la maestría. Cuidado con los Incoterms 'C' (riesgo en origen) y la diferencia entre DAP y DPU.";
+            icon = '📊';
+        } else { 
+            title = 'Maestro de los Incoterms 👑';
+            feedbackClass = 'text-green-600 border-green-400';
+            message = "¡Impresionante! Demuestras un dominio excepcional. Tu puntaje ha sido guardado para el marcador global. ¡Ahora desafía a tus compañeros!";
+            icon = '📈';
+        }
+        
+        saveScore(currentScore, currentRole);
+
+        contentDiv.innerHTML = `
+            <h2 class="text-3xl font-extrabold text-center text-purple-700 mb-6" style="font-family: 'Montserrat', sans-serif;">${icon} Resultados Finales ${icon}</h2>
+            <div class="p-6 bg-gray-50 rounded-2xl border-4 ${feedbackClass} text-center shadow-2xl">
+                <p class="text-2xl font-bold text-gray-700">Tu Desempeño:</p>
+                <p class="text-7xl font-black ${feedbackClass} my-4">${currentScore}</p>
+                <p class="text-3xl font-bold text-gray-900 mb-2">${title}</p>
+                <p class="text-gray-500 text-sm">Puntaje máximo: ${maxScore} pts</p>
+            </div>
+            
+            <div class="mt-6 p-4 bg-gray-100 rounded-lg flex items-start space-x-4 shadow-sm">
+                <div class="w-10 h-10 flex-shrink-0">
+                    <img src="${characterImage}" onerror="this.onerror=null;this.src='https://placehold.co/40x40/fcd34d/333333?text=DR';" alt="Don Ricardo" class="w-full h-full object-cover rounded-full border border-gray-400">
+                </div>
+                <div>
+                    <p class="font-bold text-gray-800">${characterName} dice:</p>
+                    <p class="text-gray-700 text-sm">${message}</p>
+                </div>
+            </div>
+
+            <div class="mt-6 text-center space-y-3">
+                <button onclick="window.showLeaderboard()" class="game-button bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl w-full text-lg">
+                    Ver mi posición en el Marcador Global 🌍
+                </button>
+                <button onclick="window.showWelcome()" class="game-button bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 px-6 rounded-xl w-full text-lg">
+                    Volver a Jugar
+                </button>
+            </div>
+        `;
+        feedbackDiv.classList.add('hidden');
+    }
+
+    function showFeedback(message, classes) {
+        // Reiniciar la animación forzando un repaint
+        feedbackDiv.classList.remove('show-feedback');
+        void feedbackDiv.offsetWidth; 
+        
+        feedbackDiv.textContent = message;
+        feedbackDiv.className = `mt-6 p-4 rounded-xl text-center font-bold show-feedback ${classes}`;
+        feedbackDiv.classList.remove('hidden');
+    }
+
+    // Exportar funciones al ámbito global para que los botones HTML las puedan llamar
+    window.showWelcome = showWelcome;
+    window.selectRole = selectRole;
+    window.showLeaderboard = showLeaderboard;
+    window.checkAnswer = checkAnswer;
+    window.nextScenario = nextScenario;
+
+
+    // Inicializar el juego al cargar la página
+    window.onload = function() {
+        initFirebase();
+    };
+</script>
+
+</body>
+</html>
